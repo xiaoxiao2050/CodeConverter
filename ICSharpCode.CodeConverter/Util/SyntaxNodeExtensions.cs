@@ -17,6 +17,7 @@ using AnonymousObjectCreationExpressionSyntax = Microsoft.CodeAnalysis.CSharp.Sy
 using ArgumentListSyntax = Microsoft.CodeAnalysis.CSharp.Syntax.ArgumentListSyntax;
 using ArrayRankSpecifierSyntax = Microsoft.CodeAnalysis.CSharp.Syntax.ArrayRankSpecifierSyntax;
 using AttributeListSyntax = Microsoft.CodeAnalysis.CSharp.Syntax.AttributeListSyntax;
+using BinaryExpressionSyntax = Microsoft.CodeAnalysis.CSharp.Syntax.BinaryExpressionSyntax;
 using CastExpressionSyntax = Microsoft.CodeAnalysis.CSharp.Syntax.CastExpressionSyntax;
 using CompilationUnitSyntax = Microsoft.CodeAnalysis.CSharp.Syntax.CompilationUnitSyntax;
 using ConditionalAccessExpressionSyntax = Microsoft.CodeAnalysis.CSharp.Syntax.ConditionalAccessExpressionSyntax;
@@ -27,6 +28,7 @@ using CSSyntaxKind = Microsoft.CodeAnalysis.CSharp.SyntaxKind;
 using DoStatementSyntax = Microsoft.CodeAnalysis.CSharp.Syntax.DoStatementSyntax;
 using EmptyStatementSyntax = Microsoft.CodeAnalysis.VisualBasic.Syntax.EmptyStatementSyntax;
 using EnumMemberDeclarationSyntax = Microsoft.CodeAnalysis.CSharp.Syntax.EnumMemberDeclarationSyntax;
+using ExpressionSyntax = Microsoft.CodeAnalysis.CSharp.Syntax.ExpressionSyntax;
 using FieldDeclarationSyntax = Microsoft.CodeAnalysis.CSharp.Syntax.FieldDeclarationSyntax;
 using ForEachStatementSyntax = Microsoft.CodeAnalysis.CSharp.Syntax.ForEachStatementSyntax;
 using ForStatementSyntax = Microsoft.CodeAnalysis.CSharp.Syntax.ForStatementSyntax;
@@ -1745,9 +1747,19 @@ namespace ICSharpCode.CodeConverter.Util
             var errorDescription = problematicSourceNode.DescribeConversionError(exception);
             var commentedText = "''' " + errorDescription.Replace("\r\n", "\r\n''' ");
             return dummyDestNode
-                .WithTrailingTrivia(Microsoft.CodeAnalysis.VisualBasic.SyntaxFactory.CommentTrivia(commentedText))
+                .WithTrailingTrivia(VBSyntaxFactory.CommentTrivia(commentedText))
                 .WithAdditionalAnnotations(new SyntaxAnnotation(AnnotationConstants.ConversionErrorAnnotationKind,
                     exception.ToString()));
+        }
+
+        public static CSharpSyntaxNode ParenthesizeIfPrecedenceCouldChange(this Microsoft.CodeAnalysis.VisualBasic.VisualBasicSyntaxNode node, ExpressionSyntax expression)
+        {
+            return node.PrecedenceCouldChange() ? Microsoft.CodeAnalysis.CSharp.SyntaxFactory.ParenthesizedExpression(expression) : expression;
+        }
+
+        public static bool PrecedenceCouldChange(this Microsoft.CodeAnalysis.VisualBasic.VisualBasicSyntaxNode node)
+        {
+            return node.Parent is Microsoft.CodeAnalysis.VisualBasic.Syntax.ExpressionSyntax && !(node.Parent is Microsoft.CodeAnalysis.VisualBasic.Syntax.ArgumentSyntax);
         }
     }
 }

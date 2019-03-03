@@ -9,6 +9,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.FindSymbols;
 using SyntaxFactory = Microsoft.CodeAnalysis.CSharp.SyntaxFactory;
+using SyntaxKind = Microsoft.CodeAnalysis.CSharp.SyntaxKind;
 using SyntaxNodeExtensions = ICSharpCode.CodeConverter.Util.SyntaxNodeExtensions;
 using VBSyntax = Microsoft.CodeAnalysis.VisualBasic.Syntax;
 using VBasic = Microsoft.CodeAnalysis.VisualBasic;
@@ -702,8 +703,6 @@ namespace ICSharpCode.CodeConverter.CSharp
                 );
             }
 
-
-
             public override CSharpSyntaxNode VisitOperatorBlock(VBSyntax.OperatorBlockSyntax node)
             {
                 return node.BlockStatement.Accept(TriviaConvertingVisitor);
@@ -990,21 +989,11 @@ namespace ICSharpCode.CodeConverter.CSharp
 
             public override CSharpSyntaxNode VisitTryCastExpression(VBSyntax.TryCastExpressionSyntax node)
             {
-                return ParenthesizeIfPrecedenceCouldChange(node, SyntaxFactory.BinaryExpression(
+                return SyntaxNodeExtensions.ParenthesizeIfPrecedenceCouldChange(node, SyntaxFactory.BinaryExpression(
                     SyntaxKind.AsExpression,
                     (ExpressionSyntax)node.Expression.Accept(TriviaConvertingVisitor),
                     (TypeSyntax)node.Type.Accept(TriviaConvertingVisitor)
                 ));
-            }
-
-            private static CSharpSyntaxNode ParenthesizeIfPrecedenceCouldChange(VBasic.VisualBasicSyntaxNode node, ExpressionSyntax expression)
-            {
-                return PrecedenceCouldChange(node) ? SyntaxFactory.ParenthesizedExpression(expression) : expression;
-            }
-
-            private static bool PrecedenceCouldChange(VBasic.VisualBasicSyntaxNode node)
-            {
-                return node.Parent is VBSyntax.ExpressionSyntax && !(node.Parent is VBSyntax.ArgumentSyntax);
             }
 
             public override CSharpSyntaxNode VisitLiteralExpression(VBSyntax.LiteralExpressionSyntax node)
@@ -1347,7 +1336,7 @@ namespace ICSharpCode.CodeConverter.CSharp
                     (ExpressionSyntax)node.WhenFalse.Accept(TriviaConvertingVisitor)
                 );
 
-                if (node.Parent.IsKind(VBasic.SyntaxKind.Interpolation) || PrecedenceCouldChange(node))
+                if (node.Parent.IsKind(VBasic.SyntaxKind.Interpolation) || SyntaxNodeExtensions.PrecedenceCouldChange(node))
                     return SyntaxFactory.ParenthesizedExpression(expr);
 
                 return expr;
@@ -1419,6 +1408,11 @@ namespace ICSharpCode.CodeConverter.CSharp
                     return SyntaxFactory.InvocationExpression(
                         SyntaxFactory.ParseExpression($"{nameof(Math)}.{nameof(Math.Pow)}"),
                         ExpressionSyntaxExtensions.CreateArgList(lhs, rhs));
+                }
+
+                if (node.IsKind(VBasic.SyntaxKind.EqualsExpression) ||
+                    node.IsKind(VBasic.SyntaxKind.NotEqualsExpression)) {
+                    (lhs, rhs) = VisualBasicStringComparison.CoerceEqualityArgs(_semanticModel, node, lhs, rhs);
                 }
 
                 var kind = VBasic.VisualBasicExtensions.Kind(node).ConvertToken(TokenContext.Local);
