@@ -85,15 +85,17 @@ namespace ICSharpCode.CodeConverter.VB
 
         public override SyntaxList<StatementSyntax> VisitIfStatement(CSS.IfStatementSyntax node)
         {
-            List<ArgumentSyntax> arguments = new List<ArgumentSyntax>();
-            StatementSyntax stmt;
-            if (node.Else == null && TryConvertIfNotNullRaiseEvent(node, out IdentifierNameSyntax name, arguments)) {
-                stmt = SyntaxFactory.RaiseEventStatement(name, SyntaxFactory.ArgumentList(SyntaxFactory.SeparatedList(arguments)));
+            if (node.Else == null && TryConvertIfNotNullRaiseEvent(node, out var stmt)) {
                 return SyntaxFactory.SingletonList(stmt);
             }
             var elseIfBlocks = new List<ElseIfBlockSyntax>();
             ElseBlockSyntax elseBlock = null;
-            CollectElseBlocks(node, elseIfBlocks, ref elseBlock);
+            if (TryConvertElseRaiseEvent(node, out var elseStmt)) {
+                elseBlock = SyntaxFactory.ElseBlock(SyntaxFactory.SingletonList(elseStmt));
+            } else {
+                CollectElseBlocks(node, elseIfBlocks, ref elseBlock);
+            }
+
             if (node.Statement is CSS.BlockSyntax) {
                 stmt = SyntaxFactory.MultiLineIfBlock(
                     SyntaxFactory.IfStatement((ExpressionSyntax)node.Condition.Accept(_nodesVisitor)).WithThenKeyword(SyntaxFactory.Token(SyntaxKind.ThenKeyword)),
@@ -130,16 +132,28 @@ namespace ICSharpCode.CodeConverter.VB
                 || statement is CSS.ThrowStatementSyntax;
         }
 
-        bool TryConvertIfNotNullRaiseEvent(CSS.IfStatementSyntax node, out IdentifierNameSyntax name, List<ArgumentSyntax> arguments)
+        bool TryConvertIfNotNullRaiseEvent(CSS.IfStatementSyntax node, out StatementSyntax raiseEventStatement)
         {
-            name = null;
-            if (TrimParenthesis(node) is CSS.BinaryExpressionSyntax be
-                && be.IsKind(CS.SyntaxKind.NotEqualsExpression)
-                && (be.Left.IsKind(CS.SyntaxKind.NullLiteralExpression) ||
-                    be.Right.IsKind(CS.SyntaxKind.NullLiteralExpression))) {
-                return TryConvertRaiseEvent(ref name, arguments, node.Statement, be);
-            }
-            return false;
+            raiseEventStatement = null;
+            return TryGetBinaryExpression(node, out var comparisonExpression, CS.SyntaxKind.NotEqualsExpression, CS.SyntaxKind.NullLiteralExpression)
+                   && TryConvertRaiseEvent(node.Statement, comparisonExpression, ref raiseEventStatement);
+        }
+
+        bool TryConvertElseRaiseEvent(CSS.IfStatementSyntax node, out StatementSyntax raiseEventStatement)
+        {
+            raiseEventStatement = null;
+            return node.Else != null && 
+                   TryGetBinaryExpression(node, out var comparisonExpression, CS.SyntaxKind.EqualsExpression, CS.SyntaxKind.NullLiteralExpression)
+                   && TryConvertRaiseEvent(node.Else.Statement, comparisonExpression, ref raiseEventStatement);
+        }
+
+        private static bool TryGetBinaryExpression(CSS.IfStatementSyntax node, out CSS.BinaryExpressionSyntax binaryExpressionSyntax, CS.SyntaxKind notEqualsExpression, CS.SyntaxKind operand)
+        {
+            binaryExpressionSyntax = TrimParenthesis(node) as CSS.BinaryExpressionSyntax;
+            return binaryExpressionSyntax != null
+                   && binaryExpressionSyntax.IsKind(notEqualsExpression)
+                   && (binaryExpressionSyntax.Left.IsKind(operand) ||
+                       binaryExpressionSyntax.Right.IsKind(operand));
         }
 
         private static CSS.ExpressionSyntax TrimParenthesis(CSS.IfStatementSyntax node)
@@ -149,8 +163,8 @@ namespace ICSharpCode.CodeConverter.VB
             return condition;
         }
 
-        private bool TryConvertRaiseEvent(ref IdentifierNameSyntax name, List<ArgumentSyntax> arguments, CSS.StatementSyntax resultStatement,
-            CSS.BinaryExpressionSyntax be)
+        private bool TryConvertRaiseEvent(CSS.StatementSyntax resultStatement,
+            CSS.BinaryExpressionSyntax be, ref StatementSyntax raiseEventStatement)
         {
             CSS.ExpressionStatementSyntax singleStatement;
             if (resultStatement is CSS.BlockSyntax block)
@@ -173,8 +187,9 @@ namespace ICSharpCode.CodeConverter.VB
             var invocationName = GetPossibleEventName(invocation.Expression);
             if (possibleEventName != invocationName)
                 return false;
-            name = SyntaxFactory.IdentifierName(possibleEventName);
-            arguments.AddRange(invocation.ArgumentList.Arguments.Select(a => (ArgumentSyntax) a.Accept(_nodesVisitor)));
+            var name = SyntaxFactory.IdentifierName(possibleEventName);
+            var arguments = invocation.ArgumentList.Arguments.Select(a => (ArgumentSyntax) a.Accept(_nodesVisitor));
+            raiseEventStatement = SyntaxFactory.RaiseEventStatement(name, SyntaxFactory.ArgumentList(SyntaxFactory.SeparatedList(arguments)));
             return true;
         }
 
@@ -182,10 +197,12 @@ namespace ICSharpCode.CodeConverter.VB
         {
             var ident = expression as CSS.IdentifierNameSyntax;
             if (ident != null)
-                return ident.Identifier.Text;
+                return ident.Identifier.Text + "Event";
             var fre = expression as CSS.MemberAccessExpressionSyntax;
             if (fre != null && fre.Expression.IsKind(CS.SyntaxKind.ThisExpression))
-                return fre.Name.Identifier.Text;
+                return fre.Name.Identifier.Text + "Event";
+            if (fre?.Name.Identifier.Text == "Invoke" && fre.Expression is CSS.IdentifierNameSyntax ins)
+                return ins.Identifier.Text + "Event";
             return null;
         }
 
@@ -201,8 +218,10 @@ namespace ICSharpCode.CodeConverter.VB
                     )
                 );
                 CollectElseBlocks(elseIf, elseIfBlocks, ref elseBlock);
-            } else
-                elseBlock = SyntaxFactory.ElseBlock(ConvertBlock(node.Else.Statement));
+            } else {
+                SyntaxList<StatementSyntax> statements = ConvertBlock(node.Else.Statement);
+                elseBlock = SyntaxFactory.ElseBlock(statements);
+            }
         }
 
         public override SyntaxList<StatementSyntax> VisitSwitchStatement(CSS.SwitchStatementSyntax node)
